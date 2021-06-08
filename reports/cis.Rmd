@@ -1,0 +1,65 @@
+---
+title: "Comparando mecanismos para jukebox sociais"
+output:
+    html_document:
+    df_print: paged
+theme: sandstone
+---
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(tidyverse)
+theme_set(theme_bw())
+library(boot)
+library(broom)
+knitr::opts_chunk$set(tidy = FALSE,
+                      fig.width = 6,
+                      fig.height = 5)
+```
+
+```{r read}
+dados = read_csv(here::here("data/satisfacoes.csv"), 
+                 col_types = "cdcc") 
+glimpse(dados)
+```
+
+```{r}
+dados %>%
+    select(satisfaction) %>%
+    distinct(satisfaction)
+```
+
+```{r}
+df = tibble(diferenças = character(), estatística = double(), inferior = double(), superior = double())
+df = df %>% add_row(diferenças = "combined - baseline", estatística = 1.913043	, inferior = 1.59956, superior = 2.251426)
+df = df %>% add_row(diferenças = "skip - baseline", estatística = 0.3913043, inferior = 0.04759741, superior = 0.7165453)
+df = df %>% add_row(diferenças = "like/dislike - baseline", estatística = 1.521739, inferior = 1.179048, superior = 1.876336)
+df = df %>% add_row(diferenças = "up/downvoting - baseline", estatística = 2.26087, inferior = 1.961678, superior = 2.602931)
+df
+```
+
+
+```{r}
+ggplot(df, aes(x = reorder(diferenças, estatística), y = estatística)) + 
+    geom_point() +
+    geom_errorbar(aes(y = estatística, ymin = inferior, ymax = superior), width=0.2) +
+    coord_flip() + 
+    labs(title = "Intervalos de Confiança das diferenças das médias de satisfação\nentre 'baseline' e outras alternativas", y="Diferenças médias de satisfação", x = "Pares de métodos")
+```
+
+
+```{r}
+df_combined = tibble(diferenças = character(), estatística = double(), inferior = double(), superior = double())
+df_combined = df_combined %>% add_row(diferenças = "skip - combined", estatística = -1.521739, inferior = -1.809502, superior = -1.220404)
+df_combined = df_combined %>% add_row(diferenças = "like/dislike - combined", estatística = -0.3913043	, inferior = -0.7156298, superior = -0.05582859)
+df_combined = df_combined %>% add_row(diferenças = "up/downvoting - combined", estatística = 0.3478261, inferior = 0.06718335, superior = 0.6608261)
+df_combined
+```
+
+
+```{r}
+ggplot(df_combined, aes(x = reorder(diferenças, estatística), y = estatística)) + 
+    geom_point() +
+    geom_errorbar(aes(y = estatística, ymin = inferior, ymax = superior), width=0.2) +
+    coord_flip() + 
+    labs(title = "Intervalos de Confiança das diferenças das médias de satisfação\nentre 'combined' e outras alternativas", y="Diferenças médias de satisfação", x = "Pares de métodos")
+```

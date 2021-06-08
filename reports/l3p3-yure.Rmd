@@ -1,0 +1,208 @@
+---
+title: "L3P3"
+author: "Yure Campos"
+output:
+  html_document:
+    theme: readable
+    df_print: paged
+    code_folding: show
+    toc: yes
+  html_notebook:
+    fig_width: 7
+    theme: readable
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE, message=FALSE, warning=FALSE}
+
+library(skimr)
+
+library(tidyverse)
+library(hrbrthemes)
+theme_set(theme_ipsum_rc())
+
+library(boot)
+library(broom)
+
+knitr::opts_chunk$set(tidy = FALSE,
+                      fig.width = 6,
+                      fig.height = 5)
+
+```
+
+## Os dados
+
+```{r, message=FALSE, warning=FALSE}
+
+dados = read_csv(
+    here::here("data/satisfacoes.csv"), 
+                 col_types = "cdcc") 
+glimpse(dados)
+```
+
+```{r, message=FALSE, warning=FALSE}
+dados %>%
+   group_by(scenario) %>%
+      skim()
+```
+
+
+
+```{r, message=FALSE, warning=FALSE}
+
+tibble(dados) %>%
+  ggplot(aes(x = satisfaction)) + 
+    geom_histogram(binwidth = .5, fill = "lightblue", color = "black") +
+    #facet_grid(scenario ~ ., space = "free" , scales = "fixed") +
+    facet_wrap(~ scenario) +
+    labs(title = "Base de dados", x = "Satisfação", y = "Nº de ocorrências")
+
+```
+
+
+## Intervalos de Confiança
+
+Inicialmente vamos calcular o intervalo de confiança para a média cada um dos mecanismos, de maneira a identificar qual mecanismo teve o melhor desempenho. Os ICs serão calculados realizando o bootstrap por meio da biblioteca boot.
+
+### Calculando a média de cada mecanismo
+
+```{r, message=FALSE, warning=FALSE}
+medias_mecanismos <- function(d, i) {
+    agrupado = d %>% 
+        slice(i) %>% 
+        group_by(scenario) %>% 
+        summarise(media = mean(satisfaction))
+    baseline = agrupado %>% filter(scenario == "baseline") %>% pull(media)
+    l_d = agrupado %>% filter(scenario == "like/dislike") %>% pull(media)
+    skip = agrupado %>% filter(scenario == "skip") %>% pull(media)
+    u_d = agrupado %>% filter(scenario == "up/downvoting") %>% pull(media)
+    combined = agrupado %>% filter(scenario == "combined") %>% pull(media)
+    c(baseline, l_d, skip, u_d, combined)
+}
+
+medias <- data.frame("Mecanismo" = c("Baseline", "Like/Dislike", "Skip", "Up/downvoting", "Combined"), "Media" = medias_mecanismos(dados, i = 1:NROW(dados)))
+
+medias
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+comparacao1 = dados %>% 
+    filter(scenario %in% c("baseline", "skip"))
+
+theta1 <- function(d, i) {
+    agrupado = d %>% 
+        slice(i) %>% 
+        group_by(scenario) %>% 
+        summarise(media = mean(satisfaction))
+    b = agrupado %>% filter(scenario == "baseline") %>% pull(media)
+    l = agrupado %>% filter(scenario == "skip") %>% pull(media)
+    l - b
+}
+
+theta1(comparacao1, i = 1:NROW(comparacao1))
+```
+
+```{r, message=FALSE, warning=FALSE}
+ci1 = boot(data = comparacao1,
+           statistic = theta1,
+           R = 2000) %>%
+    tidy(conf.level = .95,
+         conf.method = "bca",
+         conf.int = TRUE)
+
+ci1
+```
+
+```{r, message=FALSE, warning=FALSE}
+comparacao2 = dados %>% 
+    filter(scenario %in% c("baseline", "up/downvoting"))
+
+theta2 <- function(d, i) {
+    agrupado = d %>% 
+        slice(i) %>% 
+        group_by(scenario) %>% 
+        summarise(media = mean(satisfaction))
+    b = agrupado %>% filter(scenario == "baseline") %>% pull(media)
+    l = agrupado %>% filter(scenario == "up/downvoting") %>% pull(media)
+    l - b
+}
+
+theta2(comparacao2, i = 1:NROW(comparacao2))
+```
+
+```{r, message=FALSE, warning=FALSE}
+ci2 = boot(data = comparacao2,
+           statistic = theta2,
+           R = 2000) %>%
+    tidy(conf.level = .95,
+         conf.method = "bca",
+         conf.int = TRUE)
+
+ci2
+```
+
+```{r, message=FALSE, warning=FALSE}
+comparacao3 = dados %>% 
+    filter(scenario %in% c("baseline", "combined"))
+
+theta3 <- function(d, i) {
+    agrupado = d %>% 
+        slice(i) %>% 
+        group_by(scenario) %>% 
+        summarise(media = mean(satisfaction))
+    b = agrupado %>% filter(scenario == "baseline") %>% pull(media)
+    l = agrupado %>% filter(scenario == "combined") %>% pull(media)
+    l - b
+}
+
+theta3(comparacao3, i = 1:NROW(comparacao3))
+```
+
+```{r, message=FALSE, warning=FALSE}
+ci3 = boot(data = comparacao3,
+           statistic = theta3,
+           R = 2000) %>%
+    tidy(conf.level = .95,
+         conf.method = "bca",
+         conf.int = TRUE)
+
+ci3
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+df = tibble(diferenças = character(), estatística = double(), inferior = double(), superior = double())
+df = df %>% add_row(diferenças = "skip - baseline", 
+                    estatística = as.double(ci1 %>% select(statistic)), 
+                    inferior = as.double(ci1 %>% select(conf.low)),
+                    superior = as.double(ci1 %>% select(conf.high))
+                    )
+
+df = df %>% add_row(diferenças = "up/downvoting - baseline", 
+                    estatística = as.double(ci2 %>% select(statistic)), 
+                    inferior = as.double(ci2 %>% select(conf.low)),
+                    superior = as.double(ci2 %>% select(conf.high))
+                    )
+
+df = df %>% add_row(diferenças = "combined - baseline", 
+                    estatística = as.double(ci3 %>% select(statistic)), 
+                    inferior = as.double(ci3 %>% select(conf.low)),
+                    superior = as.double(ci3 %>% select(conf.high))
+                    )
+df
+```
+```{r, message=FALSE, warning=FALSE}
+ggplot(df, aes(x = reorder(diferenças, estatística), y = estatística)) + 
+    geom_point() +
+    geom_errorbar(aes(y = estatística, ymin = inferior, ymax = superior), width=0.2, color = "blue") +
+    coord_flip() + 
+    labs(title = "Diferenças das \nmédias de satisfação",
+         subtitle = "(com Intervalos de Confiança)",
+         x = "Pares de métodos",
+         y = "Médias de satisfação"
+         )
+```

@@ -1,0 +1,377 @@
+---
+title: "Comparando mecanismos para jukebox sociais"
+output:
+    html_document:
+    df_print: paged
+theme: sandstone
+---
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(tidyverse)
+theme_set(theme_bw())
+
+library(boot)
+library(broom)
+#install.packages("gridExtra")
+#library(gridExtra)
+
+knitr::opts_chunk$set(tidy = FALSE,
+                      fig.width = 8,
+                      fig.height = 5)
+
+```
+
+```{r read}
+dados = read_csv(here::here("data/satisfacoes.csv"), 
+                 col_types = "cdcc") 
+
+glimpse(dados)
+```
+
+## Utilizando Intervalos de Confiança
+
+Inicialmente vamos calcular o intervalo de confiança para a média cada um dos mecanismos, de maneira a identificar qual mecanismo teve o melhor desempenho. Os ICs serão calculados realizando o bootstrap por meio da biblioteca boot.
+
+### Calculando a média de cada mecanismo
+
+```{r}
+theta <- function(d, i) {
+    agrupado = d %>% 
+        slice(i) %>% 
+        group_by(scenario) %>% 
+        summarise(media = mean(satisfaction))
+    baseline = agrupado %>% filter(scenario == "baseline") %>% pull(media)
+    l_d = agrupado %>% filter(scenario == "like/dislike") %>% pull(media)
+    skip = agrupado %>% filter(scenario == "skip") %>% pull(media)
+    u_d = agrupado %>% filter(scenario == "up/downvoting") %>% pull(media)
+    combined = agrupado %>% filter(scenario == "combined") %>% pull(media)
+    c(baseline, l_d, skip, u_d, combined)
+}
+
+medias <- data.frame("Mecanismo" = c("Baseline", "Like/Dislike", "Skip", "Up/downvoting", "Combined"), "theta" = theta(dados, i = 1:NROW(dados)))
+
+medias
+```
+
+### Calculando e apresentando os intervalos de confiança de cada mecanismo
+
+```{r}
+cis = boot(data = dados,
+           statistic = theta,
+           R = 2000) %>%
+    tidy(conf.level = .95,
+         conf.method = "bca",
+         conf.int = TRUE)
+
+cis$scenario = c("baseline", "like/dislike", "skip", "up/downvoting", "combined")
+cis
+```
+
+Sumarizando o que é apresentado acima, temos:
+
+&nbsp;
+1. A média para o mecanismo **baseline** é de 2.130435 com IC aproximado de [1.86, 2.39].
+
+
+&nbsp;
+2. A média para o mecanismo **like/dislike** é de 3.652174 com IC aproximado de [3.43, 3.89].
+
+&nbsp;
+3. A média para o mecanismo **skip** é de 2.521739 com IC aproximado de [2.30, 2.73].
+
+&nbsp;
+4. A média para o mecanismo **up/downvoting** é de 4.391304 com IC aproximado de [4.22, 4.60].
+
+&nbsp;
+5. A média para o mecanismo **combined** é de 4.043478 com IC aproximado de [3.79, 4.25]
+
+
+&nbsp;
+Podemos ainda plotar o gráfico de maneira a obter uma visualização dos intervalos de confiança de cada mecanismo.
+
+```{r}
+cis %>%
+    ggplot(aes(
+        x = reorder(scenario, statistic),
+        y = statistic,
+        ymin = conf.low,
+        ymax = conf.high
+    )) +
+    geom_pointrange() +
+    geom_errorbar(aes(ymax = conf.high, ymin = conf.low)) +
+    geom_point(size = 3) + 
+    labs(title = "Intervalos de Confiança para cada Mecanismo", x = "Mecanismo", 
+         y = "Satisfação dos Usuários")
+```
+
+De acordo com o apresentado, podemos observar que aparentemente os mecanismos **up/downvoting**, **combined** e **like/dislike** foram os melhores avaliados, no entanto é possível observar que existe sobreposição nos intervalos desses três mecanismos. Assim, se torna interessante estimar qual desses é o melhor por meio da diferença utilizandos os intervalos de confiança. Vamos analisar a diferença entre o mecanismo que obteve o melhor desempenho aparente, **up/downvoting**, e os outros mecanismos, com foco no **combined** e no **like/dislike**.
+
+### Calculando a diferença das médias entre up/downvoting e os demais mecanismos
+
+```{r}
+theta <- function(d, i) {
+    agrupado = d %>% 
+        slice(i) %>% 
+        group_by(scenario) %>% 
+        summarise(media = mean(satisfaction))
+    baseline = agrupado %>% filter(scenario == "baseline") %>% pull(media)
+    l_d = agrupado %>% filter(scenario == "like/dislike") %>% pull(media)
+    skip = agrupado %>% filter(scenario == "skip") %>% pull(media)
+    u_d = agrupado %>% filter(scenario == "up/downvoting") %>% pull(media)
+    combined = agrupado %>% filter(scenario == "combined") %>% pull(media)
+    c(u_d - baseline, u_d - l_d, u_d - skip, u_d - combined)
+}
+
+dif_medias <- data.frame("Diferença das médias" = c("up/downvoting - baseline", "up/downvoting - like/dislike", 
+                        "up/downvoting - skip", "up/downvoting - combined"), "theta_chapeu" = theta(dados, i = 1:NROW(dados)))
+
+dif_medias
+```
+
+### Calculando e apresentando os intervalos de confiança 
+
+```{r}
+cis = boot(data = dados,
+           statistic = theta,
+           R = 2000) %>%
+    tidy(conf.level = .95,
+         conf.method = "bca",
+         conf.int = TRUE)
+
+cis$scenario = c("up/downvoting - baseline", "up/downvoting - like/dislike", "up/downvoting - skip", "up/downvoting - combined")
+cis
+```
+
+```{r}
+cis %>%
+    ggplot(aes(
+        x = reorder(scenario, statistic),
+        y = statistic,
+        ymin = conf.low,
+        ymax = conf.high
+    )) +
+    geom_pointrange() +
+    geom_errorbar(aes(ymax = conf.high, ymin = conf.low)) +
+    geom_point(size = 3) + 
+    labs(title = "Intervalos de Confiança para a diferença entre up/downvoting e os demais mecanismos", x = "Diferença entre os mecanismos", 
+         y = "Satisfação dos Usuários")
+```
+
+A partir dos cálculos dos intervalos de confiança tomando a diferença entre o **up/downvoting** e os demais mecanismos, podemos observar que a diferença entre o **up/downvoting** e o **combined** é bem pequena, e como a média deste primeiro mecanismo foi maior, podemos afirmar com 95% de confiança que este é melhor e mais bem avaliado que o **combined**. Podemos ver também que o **skip** e o **baseline** tiveram uma diferença bem mais significativa, o que dentro das opções, descarta estes de serem os melhores mecanismos. Por fim, a diferença para o **like/dislike** ainda se mostra sobrepondo a diferença que apresenta o menor intervalo, porém a média da diferença para este mecanismo ainda é maior e se aproxima mais de 1 (0.739), assim ainda podemos afirmar, utilizando intervalos de confiança, que o mecanismo **up/downvoting** é o melhor.
+
+
+## Utilizando Teste de Hipótese Manual
+
+De maneira similar ao que foi realizado utilizando intervalos de confiança, agora utilizar teste de hipótese para estimar a diferença entre o mecanismo que apresentou o melhor desempenho anteriormente, o **up/downvoting**, e os demais mecanismos (combined, like/dislike, skip e baseline). Será calculado o **theta_chapeu**, que representa a diferença das médias dos mecanismos e realizada a reamostragem (gerando 4000 reamostras) para verificar as diferenças dos dados da população através do **theta_emb** de cada comparação. Nesse caso, a H0 (hipótese nula) é se a diferença das médias da sastifação entre os mecanismos não corresponde ao valor do **theta_chapeu** e a H1 (hipótese alternativa) é se a diferença das médias da satisfação entre os mecanismos corresponde ao valor de **theta_chapeu**.
+
+```{r}
+theta_chapeu = {
+    satisfacoes = dados %>% 
+        group_by(scenario) %>% 
+        summarise(satisfacao = mean(satisfaction)) 
+    
+    baseline = satisfacoes %>% filter(scenario == "baseline") %>% pull(satisfacao)
+    l_d = satisfacoes %>% filter(scenario == "like/dislike") %>% pull(satisfacao)
+    skip = satisfacoes %>% filter(scenario == "skip") %>% pull(satisfacao)
+    u_d = satisfacoes %>% filter(scenario == "up/downvoting") %>% pull(satisfacao)
+    combined = satisfacoes %>% filter(scenario == "combined") %>% pull(satisfacao)
+    c(u_d - baseline, u_d - l_d, u_d - skip, u_d - combined)
+
+}
+
+thetas_chapeus <- data.frame("Diferença calculada" = c("up/downvoting - baseline", "up/downvoting - like/dislike", 
+                                              "up/downvoting - skip", "up/downvoting - combined"), "theta_chapeu" = theta_chapeu)
+
+thetas_chapeus
+```
+
+### Reamostragem
+
+Considerando 4000 reamostras da amostra original, a reamostragem é calculada utilizando as comparações entre o mecanismo **
+**up/downvoting** e os demais (**baseline**, **like/dislike**, **skip** e **combined** nessa ordem).
+
+```{r}
+theta_emb1 = function(d){
+    satisfacoes = d %>% 
+        mutate(scenario_embaralhado = sample(scenario, n())) %>% 
+        group_by(scenario_embaralhado) %>% 
+        summarise(satisfacao = mean(satisfaction)) 
+    
+    u_d = satisfacoes %>% filter(scenario_embaralhado == "up/downvoting") %>% pull(satisfacao)
+    baseline = satisfacoes %>% filter(scenario_embaralhado == "baseline") %>% pull(satisfacao)
+    
+    u_d - baseline
+}
+
+theta_emb2 = function(d){
+    satisfacoes = d %>% 
+        mutate(scenario_embaralhado = sample(scenario, n())) %>% 
+        group_by(scenario_embaralhado) %>% 
+        summarise(satisfacao = mean(satisfaction)) 
+    
+    u_d = satisfacoes %>% filter(scenario_embaralhado == "up/downvoting") %>% pull(satisfacao)
+    l_d = satisfacoes %>% filter(scenario_embaralhado == "like/dislike") %>% pull(satisfacao)
+    
+    u_d - l_d
+}
+
+theta_emb3 = function(d){
+    satisfacoes = d %>% 
+        mutate(scenario_embaralhado = sample(scenario, n())) %>% 
+        group_by(scenario_embaralhado) %>% 
+        summarise(satisfacao = mean(satisfaction)) 
+    
+    u_d = satisfacoes %>% filter(scenario_embaralhado == "up/downvoting") %>% pull(satisfacao)
+    skip = satisfacoes %>% filter(scenario_embaralhado == "skip") %>% pull(satisfacao)
+    
+    u_d - skip
+}
+
+theta_emb4 = function(d){
+    satisfacoes = d %>% 
+        mutate(scenario_embaralhado = sample(scenario, n())) %>% 
+        group_by(scenario_embaralhado) %>% 
+        summarise(satisfacao = mean(satisfaction)) 
+    
+    u_d = satisfacoes %>% filter(scenario_embaralhado == "up/downvoting") %>% pull(satisfacao)
+    combined = satisfacoes %>% filter(scenario_embaralhado == "combined") %>% pull(satisfacao)
+    
+    u_d - combined
+}
+
+```
+
+```{r}
+diffs_emb1 = replicate(4000, {theta_emb1(dados)})
+diffs_emb2 = replicate(4000, {theta_emb2(dados)})
+diffs_emb3 = replicate(4000, {theta_emb3(dados)})
+diffs_emb4 = replicate(4000, {theta_emb4(dados)})
+```
+
+### Analisando os Testes
+
+```{r}
+up_base <- tibble(diferenca = diffs_emb1) %>% 
+    ggplot(aes(x = diferenca)) + 
+    geom_histogram(binwidth = .2, fill = "white", color = "darkgreen") +
+    geom_vline(xintercept = theta_chapeu[1], color = "orange") +
+    geom_vline(xintercept = -theta_chapeu[1], color = "orange") +
+    labs(title = "Up/downvoting e Baseline", x = "Diferença", y = "Nº de reamostras")
+    
+
+up_like <- tibble(diferenca = diffs_emb2) %>% 
+    ggplot(aes(x = diferenca)) + 
+    geom_histogram(binwidth = .2, fill = "white", color = "darkgreen") +
+    geom_vline(xintercept = theta_chapeu[2], color = "orange") + 
+    geom_vline(xintercept = -theta_chapeu[2], color = "orange") +
+    labs(title = "Up/downvoting e Like/Dislike", x = "Diferença", y = "Nº de reamostras")
+
+up_skip <- tibble(diferenca = diffs_emb3) %>% 
+    ggplot(aes(x = diferenca)) + 
+    geom_histogram(binwidth = .2, fill = "white", color = "darkgreen") +
+    geom_vline(xintercept = theta_chapeu[3], color = "orange") + 
+    geom_vline(xintercept = -theta_chapeu[3], color = "orange") +
+    labs(title = "Up/downvoting e Skip", x = "Diferença", y = "Nº de reamostras")
+
+up_combined <- tibble(diferenca = diffs_emb4) %>% 
+    ggplot(aes(x = diferenca)) + 
+    geom_histogram(binwidth = .2, fill = "white", color = "darkgreen") +
+    geom_vline(xintercept = theta_chapeu[4], color = "orange") + 
+    geom_vline(xintercept = -theta_chapeu[4], color = "orange") +
+    labs(title = "Up/downvoting e Combined", x = "Diferença", y = "Nº de reamostras")
+
+grid.arrange(up_base, up_like, up_skip, up_combined)
+```
+
+```{r}
+sum(abs(diffs_emb1) >= abs(theta_chapeu[1])) / length(diffs_emb1)
+sum(abs(diffs_emb2) >= abs(theta_chapeu[2])) / length(diffs_emb2)
+sum(abs(diffs_emb3) >= abs(theta_chapeu[3])) / length(diffs_emb3)
+sum(abs(diffs_emb4) >= abs(theta_chapeu[4])) / length(diffs_emb4)
+```
+
+Analisando os gráficos gerados e considerando os valores calculados logo acima, podemos observar que a comparação entre os mecanismos **up/downvoting** e **combined** possui uma relação mais estreita, com isso não podemos afirmar que existe uma diferença significativa entre esses mecanismos, logo não podemos rejeitar a H0. O que não é o caso da comparação entre **up/downvoting** e o **like/dislike**, por exemplo, onde existe uma diferença mais significativa e muito maior, sendo esta diferença ainda maior para os mecanismos **baseline** e **skip**, fazendo com que rejeitemos a H0 e aceitemos a H1.
+
+
+&nbsp;
+Por fim, agora vamos realizar o **teste estatístico** de fato para verificar, comparação por comparação, quais delas rejeitam ou aceitam as hipóteses nulas em questão, considerando nível de confiança de 96% e nível de significância de 5%.
+
+## Utilizando teste estatístico
+    
+Queremos comparar se o mecanismo **up/downvoting** de fato é melhor que os demais. Dessa forma, as hipóteses alternativas e nulas serão dadas em função deste. **A hipótese nula (H0) é a diferença entre a media do mecanismo em questão e o up/ðownvoting resultando em zero. Já a hipótese alternativa (H1) é a diferença entre estas médias resultando em um valor menor que zero, o que favorece o up/downvoting**.
+
+```{r}
+significancia = 0.05
+confianca = 1 - significancia
+```
+
+### Comparando com o Baseline
+
+```{r}
+baseline = filter(dados, scenario == "baseline")$satisfaction
+u_d = filter(dados, scenario == "up/downvoting")$satisfaction
+
+t_baseline = t.test(baseline, u_d, alternative = "less", conf.level = confianca)
+t_baseline
+
+```
+
+```{r}
+t_baseline$p.value < significancia
+```
+Neste caso, vemos que o p-valor é menor que o nível de significância, o que nos faz rejeitar a hipótese nula e reforçar a de que a diferença das médias favorece o **up/downvoting** (H1).
+
+### Comparando com o Like/Dislike
+
+```{r}
+l_d = filter(dados, scenario == "like/dislike")$satisfaction
+u_d = filter(dados, scenario == "up/downvoting")$satisfaction
+
+t_ld = t.test(l_d, u_d, alternative = "less", conf.level = confianca)
+t_ld
+```
+
+```{r}
+t_ld$p.value < significancia
+```
+
+Neste segundo caso, vemos que o p-valor é menor que o nível de significância, o que também nos faz rejeitar a hipótese nula e reforçar a de que a diferença das médias favorece o **up/downvoting** (H1).
+
+### Comparando com o Skip
+
+```{r}
+skip = filter(dados, scenario == "skip")$satisfaction
+u_d = filter(dados, scenario == "up/downvoting")$satisfaction
+
+t_skip = t.test(skip, u_d, alternative = "less", conf.level = confianca)
+t_skip
+```
+
+```{r}
+t_skip$p.value < significancia
+```
+
+Neste terceiro caso, vemos que o p-valor também é menor que o nível de significância, o que mais uma vez nos faz rejeitar a hipótese nula e reforçar a de que a diferença das médias favorece o **up/downvoting** (H1).
+
+### Comparando com o Combined
+
+Esta é a comparação que mais nos interessa, visto que tanto utilizando ICs, quanto utilizando teste de hipótese manual, os resultados revelaram uma aproximação entre o desempenho desses mecanismos.
+
+```{r}
+combined = filter(dados, scenario == "combined")$satisfaction
+u_d = filter(dados, scenario == "up/downvoting")$satisfaction
+
+t_combined = t.test(combined, u_d, alternative = "less", conf.level = confianca)
+t_combined
+```
+
+```{r}
+t_combined$p.value < significancia
+```
+
+Agora, por meio do teste t, vemos que o p-valor também é menor que o nível de significância, o que nos faz aceitar a hipótese de que a diferença das médias favorece o **up/downvoting** (H1) também para este caso.
+
+## Conclusão
+
+A partir dos resultados e visualizações geradas por meio dos três métodos (ICs, teste de hipótese manual e teste estatístico), podemos afirmar que de fato o mecanismo **Up/Downvoting** é o que proporciona a melhor satisfação para os usuários, devendo este ser o mecanismo escolhido para a resolução do conflito. Muito embora, o mecanismo **Combined** apresente aproximação e ainda possa ser considerado como a segunda melhor escolha.
+
